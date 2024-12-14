@@ -4,6 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"asset-search-contract/chaincode/encryption"
+	"asset-search-contract/chaincode/models"
+	"asset-search-contract/chaincode/search"
+
 	"github.com/hyperledger/fabric-contract-api-go/v2/contractapi"
 )
 
@@ -59,19 +63,48 @@ func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface,
 		return fmt.Errorf("the asset %s already exists", id)
 	}
 
-	asset := Asset{
+	asset := models.Asset{
 		ID:             id,
 		Color:          color,
 		Size:           size,
 		Owner:          owner,
 		AppraisedValue: appraisedValue,
 	}
+
 	assetJSON, err := json.Marshal(asset)
 	if err != nil {
 		return err
 	}
 
-	return ctx.GetStub().PutState(id, assetJSON)
+	err = ctx.GetStub().PutState(asset.ID, assetJSON)
+	if err != nil {
+		return err
+	}
+
+	privateAsset, err := encryption.EncryptAsset(&asset)
+	if err != nil {
+		return err
+	}
+
+	privateAssetJSON, err := json.Marshal(privateAsset)
+	if err != nil {
+		return err
+	}
+
+	err = ctx.GetStub().PutPrivateData("assetPrivateDetails", asset.ID, privateAssetJSON)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *SmartContract) SearchAssetsByColor(ctx contractapi.TransactionContextInterface, color string) ([]*models.Asset, error) {
+	return search.SearchAssetsByColor(ctx.GetStub(), color)
+}
+
+func (s *SmartContract) SearchAssetsByOwner(ctx contractapi.TransactionContextInterface, owner string) ([]*models.Asset, error) {
+	return search.SearchAssetsByOwner(ctx.GetStub(), owner)
 }
 
 // ReadAsset returns the asset stored in the world state with given id.
@@ -129,7 +162,17 @@ func (s *SmartContract) DeleteAsset(ctx contractapi.TransactionContextInterface,
 		return fmt.Errorf("the asset %s does not exist", id)
 	}
 
-	return ctx.GetStub().DelState(id)
+	err = ctx.GetStub().DelState(id)
+	if err != nil {
+		return err
+	}
+
+	err = ctx.GetStub().DelPrivateData("assetPrivateDetails", id)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // AssetExists returns true when asset with given ID exists in world state
